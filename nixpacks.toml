@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["python311"]
+
+[phases.install]
+cmds = ["cd crm && pip install -r requirements.txt"]
+
+[start]
+cmd = "cd crm && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
