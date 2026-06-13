@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: pulse
+      POSTGRES_PASSWORD: pulse
+      # `pulse` is the default/maintenance DB; the init script creates the two app DBs.
+      POSTGRES_DB: pulse
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulse -d pulse"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  crm:
+    build: ./crm
+    environment:
+      DATABASE_URL: postgresql+psycopg2://pulse:pulse@postgres:5432/pulse_crm
+      CHANNEL_SERVICE_URL: http://channel-service:8000
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      channel-service:
+        condition: service_started
+
+  channel-service:
+    build: ./channel-service
+    environment:
+      DATABASE_URL: postgresql+psycopg2://pulse:pulse@postgres:5432/pulse_channel
+      # URL only (no depends_on) to avoid a startup cycle with crm; async retries
+      # cover transient unavailability of /receipts.
+      CRM_BASE_URL: http://crm:8000
+    ports:
+      - "8001:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
