@@ -24,10 +24,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Pulse CRM", version="0.2.0", lifespan=lifespan)
 
-# Allow the Next.js dev frontend (http://localhost:3000) to call the API from the browser.
+# Allow all origins so the deployed frontend can call the API from the browser.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
