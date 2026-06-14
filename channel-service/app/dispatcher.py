@@ -11,6 +11,7 @@ guarantees (paired with the CRM idempotency table) at this volume.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import random
 from datetime import datetime, timedelta, timezone
@@ -19,7 +20,14 @@ import httpx
 
 from .simulator import TimelineEvent
 
-CRM_BASE_URL = os.getenv("CRM_BASE_URL", "http://localhost:8000")
+logger = logging.getLogger(__name__)
+
+# Callbacks go to the CRM's /receipts endpoint. Render's blueprint provisions
+# this as CRM_CALLBACK_URL; CRM_BASE_URL is kept as a fallback for local/dev so
+# an unset/renamed var doesn't silently send callbacks to localhost in prod.
+CRM_CALLBACK_URL = os.getenv("CRM_CALLBACK_URL") or os.getenv(
+    "CRM_BASE_URL", "http://localhost:8000"
+)
 TIME_SCALE = float(os.getenv("TIME_SCALE", "1.0"))  # compress simulated time for demos
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "5"))
 DISPATCH_JITTER = float(os.getenv("DISPATCH_JITTER", "0.4"))  # seconds of arrival jitter
@@ -42,38 +50,52 @@ def _idempotency_key(communication_id: str, ev: TimelineEvent) -> str:
 
 async def _post_with_retries(client: httpx.AsyncClient, payload: dict) -> None:
     """POST one callback to CRM /receipts, retrying non-2xx / errors with backoff + jitter."""
-    url = f"{CRM_BASE_URL}/receipts"
+    url = f"{CRM_CALLBACK_URL}/receipts"
     for attempt in range(MAX_RETRIES):
         try:
             resp = await client.post(url, json=payload, timeout=10.0)
+            logger.info(f"Callback response: {resp.status_code} {resp.text[:100]}")
             if resp.status_code < 300:
                 return
-        except httpx.HTTPError:
-            pass
+        except httpx.HTTPError as e:
+            logger.error(f"Callback FAILED: {e}")
         backoff = 0.2 * (2 ** attempt) + random.uniform(0, 0.2)
         await asyncio.sleep(backoff)
+    logger.error(
+        f"Callback gave up after {MAX_RETRIES} attempts to {url} "
+        f"(key={payload.get('idempotency_key')})"
+    )
 
 
 async def _fire_event(communication_id: str, ev: TimelineEvent, base_time: datetime) -> None:
-    # Wait until this event's (scaled) moment, plus jitter so arrival order can differ
-    # from sequence order.
-    delay = ev.offset_seconds * TIME_SCALE + random.uniform(0, DISPATCH_JITTER)
-    await asyncio.sleep(delay)
+    # Whole body wrapped so a fire-and-forget task can never fail silently — any
+    # error here would otherwise be swallowed by asyncio and leave the comm stuck.
+    try:
+        # Wait until this event's (scaled) moment, plus jitter so arrival order can differ
+        # from sequence order.
+        delay = ev.offset_seconds * TIME_SCALE + random.uniform(0, DISPATCH_JITTER)
+        await asyncio.sleep(delay)
 
-    payload = {
-        "communication_id": communication_id,
-        "event_type": ev.event_type,
-        # occurred_at is the true (monotonic) event time, independent of arrival jitter.
-        "occurred_at": (base_time + timedelta(seconds=ev.offset_seconds)).isoformat(),
-        "sequence": ev.sequence,
-        "idempotency_key": _idempotency_key(communication_id, ev),
-    }
+        payload = {
+            "communication_id": communication_id,
+            "event_type": ev.event_type,
+            # occurred_at is the true (monotonic) event time, independent of arrival jitter.
+            "occurred_at": (base_time + timedelta(seconds=ev.offset_seconds)).isoformat(),
+            "sequence": ev.sequence,
+            "idempotency_key": _idempotency_key(communication_id, ev),
+        }
 
-    async with httpx.AsyncClient() as client:
-        await _post_with_retries(client, payload)
-        # Occasionally resend the identical callback to exercise CRM dedup live.
-        if random.random() < DUPLICATE_PROB:
+        logger.info(
+            f"Sending callback to {CRM_CALLBACK_URL}/receipts for comm "
+            f"{communication_id} event {ev.event_type}"
+        )
+        async with httpx.AsyncClient() as client:
             await _post_with_retries(client, payload)
+            # Occasionally resend the identical callback to exercise CRM dedup live.
+            if random.random() < DUPLICATE_PROB:
+                await _post_with_retries(client, payload)
+    except Exception as e:
+        logger.error(f"Callback FAILED: {e}")
 
 
 def dispatch(communication_id: str, timeline: list[TimelineEvent]) -> None:

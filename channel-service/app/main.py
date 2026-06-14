@@ -5,6 +5,7 @@ checkpoint 2/3.
 """
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -12,6 +13,10 @@ from fastapi import FastAPI
 from . import models  # noqa: F401 — registers ShopperPersona on Base.metadata
 from .db import Base, engine
 from .routers import dispatch, seed
+
+# Surface app-level INFO logs (callbacks, table creation) in Render's log stream;
+# without this the root logger defaults to WARNING and they are dropped.
+logging.basicConfig(level=logging.INFO)
 
 
 @asynccontextmanager
