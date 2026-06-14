@@ -14,5 +14,7 @@ services:
         sync: false
       - key: TIME_SCALE
         value: "10"
+      - key: CHANNEL_SERVICE_URL
+        value: "https://pulse-channel.onrender.com"
       - key: DATABASE_URL
         sync: false
