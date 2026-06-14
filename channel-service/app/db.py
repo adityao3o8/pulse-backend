@@ -14,6 +14,10 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 DATABASE_URL = os.getenv(
     "DATABASE_URL", "postgresql+psycopg2://pulse:pulse@localhost:5432/pulse_channel"
 )
+# Render (and Heroku-style providers) expose DATABASE_URL with the legacy
+# "postgres://" scheme; SQLAlchemy 2.x only accepts "postgresql://".
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 engine = create_engine(DATABASE_URL, pool_pre_ping=True, future=True)
 
