@@ -57,7 +57,7 @@ pulse-backend/
 │   │   │   ├── receipts.py   # POST /receipts ← channel callbacks (idempotent)
 │   │   │   └── analytics.py  # campaign stats + incremental lift
 │   │   ├── agent/
-│   │   │   ├── llm.py        # Groq client wrapper
+│   │   │   ├── llm.py        # LLM provider cascade (Gemini → Groq → deterministic)
 │   │   │   ├── planner.py    # goal → segment + journey graph
 │   │   │   ├── copywriter.py # message + variant drafting
 │   │   │   └── reasoner.py   # logs decisions + reads outcomes to adapt
@@ -299,7 +299,8 @@ CRM /send ──────────────▶ channel-service /dispatc
 
 ## 6. The Self-Narrating Agent
 
-`agent/planner.py` turns a goal into a plan using Groq/LLaMA 3.1:
+`agent/planner.py` turns a goal into a plan using a provider cascade (Gemini 2.5 Flash →
+Groq LLaMA 3.3 70b on quota → deterministic generator if no key), wrapped in `agent/llm.py`:
 
 1. **Segment** — NL goal → `filter_json` (LLM compiles intent to an executable filter; you
    validate it against an allow-list of fields so the model can't emit arbitrary SQL).
@@ -346,9 +347,9 @@ per campaign, per channel, per segment. The dashboard headlines **"+8.2% increme
 | CRM service | FastAPI (Python) |
 | Channel service | FastAPI (Python), separate deployable |
 | DB | PostgreSQL (SQLAlchemy + Alembic) |
-| AI | Groq + LLaMA 3.1 (provider wrapped behind `agent/llm.py` so it's swappable) |
-| Frontend | Next.js + React Flow (journey graph) + Framer Motion |
-| Deploy | Railway (both backend services + Postgres) · Vercel (frontend) |
+| AI | Gemini 2.5 Flash (primary) + Groq LLaMA 3.3 70b (quota fallback) + deterministic generator (no-key fallback), wrapped behind `agent/llm.py` so it's swappable |
+| Frontend | Next.js 14 + React Flow (journey graph) + Recharts + Framer Motion / GSAP |
+| Deploy | Render (both backend services + shared Postgres) · Vercel/Render (frontend) |
 | Local | `docker-compose up` brings up postgres + both services |
 
 ---
