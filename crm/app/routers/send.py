@@ -4,6 +4,7 @@ The communication_id is CRM-owned (generated here); the channel never invents it
 """
 from __future__ import annotations
 
+import logging
 import os
 import uuid
 
@@ -14,6 +15,8 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..models import Communication, Customer
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["send"])
 
@@ -60,6 +63,7 @@ def send(
         return SendResult(communication_id=comm.id, status=comm.status, dispatched=False)
 
     try:
+        logger.info(f"Dispatching to channel service: {CHANNEL_SERVICE_URL}")
         resp = httpx.post(
             f"{CHANNEL_SERVICE_URL}/dispatch",
             json={
@@ -70,6 +74,8 @@ def send(
             },
             timeout=10.0,
         )
+        logger.info(f"Dispatch response status: {resp.status_code}")
+        logger.info(f"Dispatch response body: {resp.text}")
         resp.raise_for_status()
     except httpx.HTTPError as exc:
         # Row persists as `queued`; surface the failure to the caller.

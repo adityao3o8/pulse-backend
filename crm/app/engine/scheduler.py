@@ -93,6 +93,7 @@ async def _dispatch_all(pending: list[PendingDispatch]) -> None:
 
 
 async def _fire_one(client: httpx.AsyncClient, p: PendingDispatch) -> None:
+    logger.info(f"Dispatching to channel service: {CHANNEL_SERVICE_URL}")
     resp = await client.post(
         f"{CHANNEL_SERVICE_URL}/dispatch",
         json={
@@ -103,4 +104,6 @@ async def _fire_one(client: httpx.AsyncClient, p: PendingDispatch) -> None:
         },
         timeout=10.0,
     )
+    logger.info(f"Dispatch response status: {resp.status_code}")
+    logger.info(f"Dispatch response body: {resp.text}")
     resp.raise_for_status()
