@@ -1,0 +1,16 @@
+name: Keep Pulse Backend Alive
+on:
+  schedule:
+    - cron: '*/14 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping CRM
+        run: |
+          curl -f https://pulse-crm.onrender.com/health || echo "CRM ping failed"
+      - name: Ping Channel Service
+        run: |
+          curl -f https://pulse-channel.onrender.com/health || echo "Channel ping failed"

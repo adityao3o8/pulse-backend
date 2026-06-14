@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: pulse-channel
+    runtime: python
+    rootDir: channel-service
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: CRM_CALLBACK_URL
+        value: "https://pulse-crm.onrender.com"
