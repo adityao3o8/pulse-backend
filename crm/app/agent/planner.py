@@ -40,6 +40,28 @@ _SYSTEM = (
     "code fences, no commentary."
 )
 
+# Per-step system prompts. The descriptive guidance lands in the `reasoning`
+# field of the JSON the model returns. These flow through query_llm to BOTH
+# providers (Gemini primary, Groq fallback) so analysis quality is equally
+# specific whichever one answers.
+_SYSTEM_SEGMENT = _SYSTEM + (
+    "\n\nBe specific and descriptive. Explain WHY you chose this segment, "
+    "what customer behavior signals you detected, and what the business impact "
+    "will be. Minimum 3 sentences of reasoning. Never give generic one-line answers."
+)
+_SYSTEM_JOURNEY = _SYSTEM + (
+    "\n\nExplain the psychological reasoning behind each channel choice. "
+    "Why WhatsApp first? What customer mindset are you targeting? How does the "
+    "wait time affect conversion? Be specific, minimum 4 sentences. Never give "
+    "generic answers."
+)
+_SYSTEM_COPY = _SYSTEM + (
+    "\n\nExplain the copywriting strategy. What emotional triggers are you using? "
+    "Why this specific offer? How does personalization affect open rates? "
+    "Minimum 3 sentences of strategic reasoning. Reference the specific goal and "
+    "customer segment."
+)
+
 
 class PlanValidationError(ValueError):
     """Raised when a (validated) agent artifact violates the structural contract."""
@@ -174,12 +196,13 @@ def _compile_filter(goal: str) -> tuple[dict, str, str]:
         '"filter":{"total_spend":{"gt":10000}}}'
     )
     try:
-        raw = extract_json(query_llm(prompt, system=_SYSTEM))
+        text, source = query_llm(prompt, system=_SYSTEM_SEGMENT)
+        raw = extract_json(text)
         filter_json = sanitize_filter(raw.get("filter", {}))
         if not filter_json:  # model emitted nothing usable — fall back
             raise LLMParseError("empty filter after sanitization")
         reasoning = str(raw.get("reasoning") or "Compiled from the stated goal.")
-        return filter_json, reasoning, "gemini"
+        return filter_json, reasoning, source
     except LLMQuotaError as exc:
         logger.warning("Filter: quota exceeded, using fallback (%s)", exc)
         f, r, _ = _fallback_filter(goal)
@@ -270,11 +293,12 @@ def _design_journey(goal: str) -> tuple[dict, str, str]:
         '"END":{"type":"END"}}}}'
     )
     try:
-        raw = extract_json(query_llm(prompt, system=_SYSTEM))
+        text, source = query_llm(prompt, system=_SYSTEM_JOURNEY)
+        raw = extract_json(text)
         graph = raw.get("graph", {})
         validate_graph(graph)
         reasoning = str(raw.get("reasoning") or "Multi-step journey compiled from the goal.")
-        return graph, reasoning, "gemini"
+        return graph, reasoning, source
     except LLMQuotaError as exc:
         logger.warning("Journey: quota exceeded, using fallback (%s)", exc)
         g, r, _ = _fallback_graph()
@@ -374,10 +398,11 @@ def _draft_copy(goal: str, send_nodes: dict) -> tuple[dict, str, str]:
         '"messages":{"<node_id>":{"A":"<variant A>","B":"<variant B>"}}}'
     )
     try:
-        raw = extract_json(query_llm(prompt, system=_SYSTEM))
+        text, source = query_llm(prompt, system=_SYSTEM_COPY)
+        raw = extract_json(text)
         messages = validate_copy(raw.get("messages", {}), send_nodes)
         reasoning = str(raw.get("reasoning") or "Two variants per send node for A/B testing.")
-        return messages, reasoning, "gemini"
+        return messages, reasoning, source
     except LLMQuotaError as exc:
         logger.warning("Copy: quota exceeded, using fallback (%s)", exc)
         m, r, _ = _fallback_copy(goal, send_nodes)

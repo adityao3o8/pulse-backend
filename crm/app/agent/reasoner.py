@@ -37,8 +37,10 @@ LIFT_EPSILON = 0.0  # lift > 0 outperformed; <= 0 underperformed
 FATIGUE_FAILURE_RATIO = 0.25  # failed/sent above this => fatigue/deliverability warning
 
 _SUMMARY_SYSTEM = (
-    "You are a growth analyst. Given the campaign results, write 2-4 sentences in plain prose "
-    "summarizing what worked, what underperformed, and what to change in the next campaign. "
+    "You are a growth analyst. Given the campaign results, write a detailed post-campaign "
+    "analysis in plain prose. What worked and why? What failed and what does that tell us about "
+    "customer behavior? What specific changes will improve the next campaign? Reference actual "
+    "numbers from the evidence. Minimum 5 sentences of analysis. "
     "No JSON, no markdown, no bullet points."
 )
 
@@ -244,9 +246,10 @@ def _summarize(stats, verdicts, signal, switch_suggestion) -> tuple[str, str]:
         "Write the adaptation summary for the next campaign."
     )
     try:
-        text = query_llm(prompt, system=_SUMMARY_SYSTEM, json_mode=False).strip()
+        raw, source = query_llm(prompt, system=_SUMMARY_SYSTEM, json_mode=False)
+        text = raw.strip()
         if text:
-            return text, "gemini"
+            return text, source
         return fallback, "fallback"
     except LLMQuotaError as exc:
         logger.warning("Adaptation summary: quota exceeded, using fallback (%s)", exc)
