@@ -11,4 +11,4 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: CRM_CALLBACK_URL
-        value: "https://pulse-crm.onrender.com"
+        value: "https://pulse-backend-2.onrender.com"
