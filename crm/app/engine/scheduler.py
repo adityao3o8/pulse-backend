@@ -34,6 +34,10 @@ DISPATCH_TIMEOUT    = float(os.getenv("DISPATCH_TIMEOUT", "60.0"))     # seconds
 # Re-dispatch comms left in 'queued' this long — self-heals sends stranded by a
 # transient channel outage (e.g. a cold start that blew past DISPATCH_TIMEOUT).
 REQUEUE_AFTER       = float(os.getenv("SCHEDULER_REQUEUE_AFTER", "30.0"))  # seconds
+# Ping the channel /health this often to keep its free-tier instance warm. The
+# scheduler runs continuously, so this keeps the channel awake without relying on
+# an external cron — as long as this CRM is up, the channel is too.
+CHANNEL_KEEPALIVE_INTERVAL = float(os.getenv("CHANNEL_KEEPALIVE_INTERVAL", "600.0"))  # seconds
 
 
 async def scheduler_loop() -> None:
@@ -42,14 +46,33 @@ async def scheduler_loop() -> None:
         "Journey scheduler started — interval=%.1fs batch=%d TIME_SCALE=%s",
         SCHEDULER_INTERVAL, BATCH_SIZE, os.getenv("TIME_SCALE", "10.0"),
     )
+    last_keepalive = 0.0
     while True:
         try:
             pending = _tick_db() + _tick_requeue()
             if pending:
                 await _dispatch_all(pending)
+            now_mono = asyncio.get_event_loop().time()
+            if now_mono - last_keepalive >= CHANNEL_KEEPALIVE_INTERVAL:
+                await _keepalive_channel()
+                last_keepalive = now_mono
         except Exception:
             logger.exception("Scheduler tick failed")
         await asyncio.sleep(SCHEDULER_INTERVAL)
+
+
+async def _keepalive_channel() -> None:
+    """Ping the channel /health to keep its free-tier instance from spinning down.
+
+    Best-effort: a failed ping is logged, never raised — keeping the channel warm
+    must never disturb the scheduler's real work.
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(f"{CHANNEL_SERVICE_URL}/health", timeout=DISPATCH_TIMEOUT)
+        logger.debug("Channel keepalive ping: %s", resp.status_code)
+    except Exception as e:
+        logger.warning("Channel keepalive ping failed: %s", e)
 
 
 def _tick_db() -> list[PendingDispatch]:
